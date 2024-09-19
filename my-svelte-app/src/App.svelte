@@ -12,7 +12,7 @@
       chatHistory = data.flatMap((msg) => [
         { type: 'user', text: msg.message },
         { type: 'bot', text: msg.response }
-      ]);
+      ]).reverse(); // Reverse to show most recent at the top
   }
 
   onMount(() => {
@@ -26,14 +26,18 @@
 
       socket.on('new_message', (data: { message: string, response: string }) => {
           console.log('New message received:', data);
-          // Update chat history reactively
-          chatHistory = [...chatHistory, { type: 'user', text: data.message }, { type: 'bot', text: data.response }];
+          // Prepend new messages to the chat history
+          chatHistory = [
+            { type: 'user', text: data.message },
+            { type: 'bot', text: data.response },
+            ...chatHistory
+          ];
 
-          // Scroll to the bottom of chat after new message
+          // Scroll to the top of chat after new message
           setTimeout(() => {
               const chatBox = document.querySelector('.chat-box');
               if (chatBox) {
-                  chatBox.scrollTop = chatBox.scrollHeight;
+                  chatBox.scrollTop = 0; // Scroll to the top
               }
           }, 100);
       });
@@ -43,8 +47,7 @@
       if (message.trim() !== '' && socket?.connected) {
           console.log('Sending message:', message);
           socket.emit('send_message', { message });
-        /*   chatHistory = [...chatHistory, { type: 'user', text: message }]; // Update immediately */
-          message = '';
+          message = ''; // Clear the input field after sending
       }
   }
 
@@ -53,26 +56,36 @@
           sendMessage();
       }
   }
+
+  function clearChat() {
+      socket.emit('clear_chat'); 
+      window.location.reload();
+  }
 </script>
-
+<br><br><br><br><br><br><br>
 <main class="container">
-  <h1>Real-Time Socket.io Chat</h1>
-  <div class="input-group mb-3">
-    <input bind:value={message} class="form-control" placeholder="Type a message" on:keypress={handleKeypress} />
-    <button class="btn btn-primary" on:click={sendMessage}>Send</button>
-  </div>
-
-  <div class="chat-box mb-3">
-    {#each chatHistory as { type, text }}
-      <div class={`message ${type}`}>
-        {#if type === 'user'}
-          <strong>User:</strong> {text}
-        {:else}
-          <strong>Bot:</strong> {text}
-        {/if}
+  <div class="row">
+    <div class="col-12"> <h1>Socket.AI Chat</h1>
+      <div class="input-group mb-3">
+        <input bind:value={message} class="form-control" placeholder="Type a message" on:keypress={handleKeypress} />
+        <button class="btn btn-primary" on:click={sendMessage}>Send</button>
+        <button class="btn btn-danger" on:click={clearChat}>Clear Chat</button>
       </div>
-    {/each}
+    
+      <div class="chat-box mb-3">
+        <h5>Chat History</h5>
+        {#each chatHistory as { type, text }}
+          <div class={`message ${type}`}>
+            {#if type === 'user'}
+            {text}<strong> :User</strong> 
+            {:else}
+              <strong>Bot:</strong> {text}
+            {/if}
+          </div>
+        {/each}
+      </div></div>
   </div>
+ 
 </main>
 
 <style>
@@ -83,8 +96,9 @@
   .chat-box {
     max-height: 400px;
     overflow-y: auto;
-    border: 1px solid #ccc;
-    padding: 10px;
+    border: 1px solid #ebeaea;
+    background-color: aliceblue;
+    padding: 2px;
     border-radius: 5px;
   }
   .message {

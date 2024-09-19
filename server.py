@@ -2,22 +2,18 @@ from flask import Flask, jsonify
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import sqlite3
-import random
+from groq import Groq
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for the Flask app
 
 socketio = SocketIO(app, cors_allowed_origins="*")  # Allow CORS for socket connections
 
-# Array of random responses
-random_responses = [
-    "Got it!",
-    "Interesting!",
-    "Tell me more!",
-    "I agree!",
-    "Let's discuss!",
-    "Sounds good!"
-]
+# Initialize the Groq client
+client = Groq(api_key='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')
+
+# Initialize an empty list to keep conversation history
+conversation_history = []
 
 # Initialize the SQLite database
 def init_db():
@@ -41,13 +37,39 @@ def get_messages():
     conn.close()
     return jsonify(messages)
 
-# Handle incoming socket messages and store them along with random responses
+# Handle incoming socket messages and generate responses from AI
 @socketio.on('send_message')
 def handle_message(data):
-    user_message = data['message']
-    bot_response = random.choice(random_responses)
+    global conversation_history
+    MAX_HISTORY_LENGTH = 10
 
-    # Save user message and bot response in database
+    user_message = data['message']
+    
+    # Add the new user message to the conversation history
+    conversation_history.append({"role": "user", "content": user_message})
+
+    # Limit the size of the conversation history
+    if len(conversation_history) > MAX_HISTORY_LENGTH:
+        conversation_history.pop(0)
+
+    # Generate a response from the AI using the Groq API
+    completion = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=conversation_history + [{"role": "system", "content": "You must reply to any question that I ask."}],
+        temperature=1,
+        max_tokens=1024,
+        top_p=1,
+        stream=False,
+        stop=None,
+    )
+
+    # Extract the AI response
+    bot_response = completion.choices[0].message.content
+
+    # Add the bot response to the conversation history
+    conversation_history.append({"role": "assistant", "content": bot_response})
+
+    # Save user message and AI response in database
     conn = sqlite3.connect('data.db')
     c = conn.cursor()
     c.execute('INSERT INTO messages (content, response) VALUES (?, ?)', (user_message, bot_response))
@@ -56,6 +78,22 @@ def handle_message(data):
 
     # Emit the new message and bot response to all connected clients
     socketio.emit('new_message', {'message': user_message, 'response': bot_response})
+
+@socketio.on('clear_chat')
+def clear_chat():
+    # Clear the messages from the SQLite database
+    conn = sqlite3.connect('data.db')
+    c = conn.cursor()
+    c.execute('DELETE FROM messages')
+    conn.commit()
+    conn.close()
+
+    # Clear the conversation history
+    global conversation_history
+    conversation_history = []
+
+    # Emit an event to notify all clients to clear their chat history
+    socketio.emit('chat_cleared')
 
 # Main entry point for the Flask app
 if __name__ == '__main__':
